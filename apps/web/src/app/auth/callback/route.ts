@@ -55,8 +55,10 @@ export async function GET(request: NextRequest) {
 
     // Determine the exact origin (accounting for Vercel/reverse proxies)
     const forwardedHost = request.headers.get('x-forwarded-host');
-    const isLocalEnv = process.env.NODE_ENV === 'development';
-    const redirectBase = !isLocalEnv && forwardedHost ? `https://${forwardedHost}` : requestUrl.origin;
+    const forwardedProto = request.headers.get('x-forwarded-proto') || (requestUrl.protocol ? requestUrl.protocol.replace(':', '') : 'https');
+    const redirectBase = forwardedHost
+      ? `${forwardedProto}://${forwardedHost}`
+      : requestUrl.origin;
 
     // Successfully exchanged code or verified token for session
     const response = NextResponse.redirect(new URL(safeNext, redirectBase));
@@ -77,7 +79,9 @@ export async function GET(request: NextRequest) {
 
   // No code or error provided; return to login
   const forwardedHost = request.headers.get('x-forwarded-host');
-  const isLocalEnv = process.env.NODE_ENV === 'development';
-  const redirectBase = !isLocalEnv && forwardedHost ? `https://${forwardedHost}` : requestUrl.origin;
+  const forwardedProto = request.headers.get('x-forwarded-proto') || (requestUrl.protocol ? requestUrl.protocol.replace(':', '') : 'https');
+  const redirectBase = forwardedHost
+    ? `${forwardedProto}://${forwardedHost}`
+    : requestUrl.origin;
   return NextResponse.redirect(new URL('/auth/login', redirectBase));
 }

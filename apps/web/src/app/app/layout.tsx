@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import AppShell from '@/components/app/AppShell';
 
 export const metadata: Metadata = {
-  title: 'Dashboard | LifeMap OS',
+  title: 'Dashboard',
 };
 
 export default function AppLayout({

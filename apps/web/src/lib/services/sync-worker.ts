@@ -106,6 +106,7 @@ async function runSync() {
       await updateLocalSyncStatus(item.entity_type, item.entity_id, 'synced');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
+      console.warn('[LifeMap OS Sync] Item sync failed:', item.entity_type, item.entity_id, msg);
       await markFailed(item.id, msg);
       await updateLocalSyncStatus(item.entity_type, item.entity_id, 'error');
       hasError = true;
@@ -155,12 +156,20 @@ async function syncNote(
     return;
   }
 
-  // Strip local-only fields
-  const { sync_status, server_updated_at, is_draft, ...serverPayload } = payload as Record<string, unknown>;
-  void sync_status; void server_updated_at; void is_draft;
+  const allowedNoteFields = [
+    'id', 'title', 'content', 'content_text', 'type', 'status',
+    'folder_id', 'is_pinned', 'is_favorite', 'color', 'word_count',
+    'created_at', 'updated_at', 'deleted_at'
+  ];
+  const cleanPayload: Record<string, unknown> = { user_id: userId };
+  for (const field of allowedNoteFields) {
+    if (field in payload) {
+      cleanPayload[field] = payload[field];
+    }
+  }
 
   const { error } = await supabase.from('notes').upsert(
-    { ...serverPayload, user_id: userId },
+    cleanPayload,
     { onConflict: 'id', ignoreDuplicates: false }
   );
 
@@ -185,11 +194,20 @@ async function syncTask(
     return;
   }
 
-  const { sync_status, ...serverPayload } = payload as Record<string, unknown>;
-  void sync_status;
+  const allowedTaskFields = [
+    'id', 'note_id', 'parent_task_id', 'title', 'description',
+    'status', 'priority', 'due_date', 'start_date', 'completed_at',
+    'is_deleted', 'sort_order', 'created_at', 'updated_at'
+  ];
+  const cleanPayload: Record<string, unknown> = { user_id: userId };
+  for (const field of allowedTaskFields) {
+    if (field in payload) {
+      cleanPayload[field] = payload[field];
+    }
+  }
 
   const { error } = await supabase.from('tasks').upsert(
-    { ...serverPayload, user_id: userId },
+    cleanPayload,
     { onConflict: 'id' }
   );
 
@@ -214,11 +232,19 @@ async function syncFolder(
     return;
   }
 
-  const { sync_status, ...serverPayload } = payload as Record<string, unknown>;
-  void sync_status;
+  const allowedFolderFields = [
+    'id', 'name', 'parent_id', 'color', 'icon', 'sort_order',
+    'created_at', 'updated_at'
+  ];
+  const cleanPayload: Record<string, unknown> = { user_id: userId };
+  for (const field of allowedFolderFields) {
+    if (field in payload) {
+      cleanPayload[field] = payload[field];
+    }
+  }
 
   const { error } = await supabase.from('folders').upsert(
-    { ...serverPayload, user_id: userId },
+    cleanPayload,
     { onConflict: 'id' }
   );
   if (error) throw new Error(error.message);
@@ -232,9 +258,6 @@ async function syncTag(
 ) {
   if (!supabase) return;
 
-  const { sync_status, ...serverPayload } = payload as Record<string, unknown>;
-  void sync_status;
-
   if (operation === 'delete') {
     const { error } = await supabase
       .from('tags')
@@ -245,8 +268,18 @@ async function syncTag(
     return;
   }
 
+  const allowedTagFields = [
+    'id', 'name', 'color', 'created_at'
+  ];
+  const cleanPayload: Record<string, unknown> = { user_id: userId };
+  for (const field of allowedTagFields) {
+    if (field in payload) {
+      cleanPayload[field] = payload[field];
+    }
+  }
+
   const { error } = await supabase.from('tags').upsert(
-    { ...serverPayload, user_id: userId },
+    cleanPayload,
     { onConflict: 'id' }
   );
   if (error) throw new Error(error.message);

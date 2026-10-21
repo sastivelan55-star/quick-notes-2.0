@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Sign In',
+  title: 'Sign In | LifeMap OS',
+  description: 'Sign in to LifeMap OS — Your life. Your goals. In sync.',
 };
 
 export default function AuthLayout({

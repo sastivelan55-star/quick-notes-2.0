@@ -114,7 +114,12 @@ export default function Sidebar() {
     pendingSyncCount,
     todayTaskCount,
     overdueTaskCount,
+    userId,
     userEmail,
+    userName,
+    userAvatar,
+    isGuest,
+    setUser,
     theme,
     setTheme,
   } = useAppStore();
@@ -122,11 +127,27 @@ export default function Sidebar() {
   const router = useRouter();
   const supabase = createClient();
 
+  const isLocalMode = isGuest || !userId || userId === 'local';
+
   async function handleSignOut() {
-    if (supabase) {
-      await supabase.auth.signOut();
+    try {
+      if (supabase) {
+        await supabase.auth.signOut();
+      }
+      setUser(null, null);
+      if (typeof document !== 'undefined') {
+        document.cookie = 'lifemap_guest=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+        document.cookie = 'notenest_guest=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+      }
+      toast.success('Signed out');
+      router.push('/auth/login');
+    } catch {
+      router.push('/auth/login');
     }
-    router.push('/auth/login');
+  }
+
+  function handleSignIn() {
+    router.push('/auth/login?next=/app');
   }
 
   function handleNavClick(view: AppView) {
@@ -180,32 +201,29 @@ export default function Sidebar() {
             className="sidebar-logo"
             onClick={() => handleNavClick('notes')}
             style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}
-            aria-label="NoteNest — go to notes"
+            aria-label="LifeMap OS — go to dashboard"
           >
             <div
               style={{
                 width: 28,
                 height: 28,
                 borderRadius: 8,
-                background: '#2563EB',
+                background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: '0 2px 6px rgba(37, 99, 235, 0.35)',
+                boxShadow: '0 2px 8px rgba(99, 102, 241, 0.4)',
                 flexShrink: 0,
               }}
               aria-hidden="true"
             >
-              {/* NoteNest Logo: White Note Sheet with Pencil */}
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <rect x="4" y="3" width="12" height="16" rx="2" fill="white" />
-                <path d="M7 7h6M7 11h4" stroke="#2563EB" strokeWidth="1.5" strokeLinecap="round" />
-                <path d="M13 18l5-5-2-2-5 5v2h2z" fill="#FBBF24" />
-                <path d="M18 11l1-1a1 1 0 0 0 0-1.4l-1.6-1.6a1 1 0 0 0-1.4 0l-1 1 3 3z" fill="#EF4444" />
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" fill="rgba(255,255,255,0.2)" />
               </svg>
             </div>
             <span className="sidebar-logo-text" style={{ fontSize: 'var(--font-size-base)', fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
-              NoteNest
+              LifeMap OS
             </span>
           </a>
 
@@ -402,21 +420,111 @@ export default function Sidebar() {
             ))}
           </div>
 
-          {/* User */}
-          {!sidebarCollapsed && userEmail && (
+          {/* User Account / Auth Section */}
+          {!sidebarCollapsed ? (
+            !isLocalMode ? (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: 'var(--space-2) var(--space-3)',
+                  marginTop: 'var(--space-1)',
+                  borderRadius: 'var(--radius-lg)',
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-subtle)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minWidth: 0 }}>
+                  {userAvatar ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={userAvatar}
+                      alt={userName || 'Avatar'}
+                      style={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover' }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: '50%',
+                        background: 'var(--color-brand-500, #2563eb)',
+                        color: '#fff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 11,
+                        fontWeight: 'bold',
+                      }}
+                    >
+                      {(userName || userEmail || 'U').charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 'var(--font-size-xs)',
+                        fontWeight: 'var(--font-weight-medium)',
+                        color: 'var(--text-primary)',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                      title={userName || userEmail || undefined}
+                    >
+                      {userName || userEmail?.split('@')[0]}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  className="icon-btn"
+                  onClick={handleSignOut}
+                  title="Sign out"
+                  aria-label="Sign out"
+                  id="sign-out-btn"
+                  style={{ width: 28, height: 28 }}
+                >
+                  <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
+                    <path d="M13 10H3M3 10l3-3M3 10l3 3M10 4l1-1h6v14h-6l-1-1" />
+                  </svg>
+                </button>
+              </div>
+            ) : (
+              <button
+                className="sidebar-nav-item"
+                onClick={handleSignIn}
+                title="Sign in with Google"
+                style={{ marginTop: 'var(--space-1)' }}
+                id="sidebar-sign-in-btn"
+              >
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="sidebar-nav-item-icon">
+                  <path d="M10 2a5 5 0 0 0-5 5v3H4a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2h-1V7a5 5 0 0 0-5-5zm-3 5a3 3 0 0 1 6 0v3H7V7z" />
+                </svg>
+                <span className="sidebar-nav-item-label" style={{ fontSize: 'var(--font-size-xs)' }}>
+                  Sign in with Google
+                </span>
+              </button>
+            )
+          ) : (
             <button
-              className="sidebar-nav-item"
-              onClick={handleSignOut}
-              title="Sign out"
-              style={{ marginTop: 'var(--space-1)' }}
-              id="sign-out-btn"
+              className="icon-btn"
+              onClick={!isLocalMode ? handleSignOut : handleSignIn}
+              title={!isLocalMode ? 'Sign out' : 'Sign in with Google'}
+              aria-label={!isLocalMode ? 'Sign out' : 'Sign in with Google'}
+              style={{ margin: 'var(--space-2) auto 0 auto', width: 32, height: 32 }}
             >
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="sidebar-nav-item-icon">
-                <path d="M13 10H3M3 10l3-3M3 10l3 3M10 4l1-1h6v14h-6l-1-1" />
-              </svg>
-              <span className="sidebar-nav-item-label" style={{ fontSize: 'var(--font-size-xs)', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {userEmail === 'local@flownote.local' ? 'Local mode' : userEmail}
-              </span>
+              {!isLocalMode ? (
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
+                  <path d="M13 10H3M3 10l3-3M3 10l3 3M10 4l1-1h6v14h-6l-1-1" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" width="16" height="16">
+                  <circle cx="10" cy="10" r="7" />
+                  <path d="M10 7v6M7 10h6" />
+                </svg>
+              )}
             </button>
           )}
         </div>

@@ -3,19 +3,19 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: {
-    default: 'NoteNest — Your thoughts, always with you',
-    template: '%s | NoteNest',
+    default: 'LifeMap OS — Your life. Your goals. In sync.',
+    template: '%s | LifeMap OS',
   },
   description:
-    'A fast, simple and powerful note-taking app that works online and offline. Capture your ideas, organize your notes, and stay productive — across all your devices.',
-  keywords: ['notes', 'productivity', 'NoteNest', 'tasks', 'offline', 'knowledge management'],
-  authors: [{ name: 'NoteNest' }],
-  creator: 'NoteNest',
+    'The intelligent operating system designed to turn your long-term ambitions into daily momentum. Connect your goals, tasks, and weekly reviews seamlessly.',
+  keywords: ['LifeMap OS', 'productivity', 'goals', 'tasks', 'roadmap', 'offline', 'Supabase'],
+  authors: [{ name: 'LifeMap OS' }],
+  creator: 'LifeMap OS',
   openGraph: {
     type: 'website',
-    title: 'NoteNest — Your thoughts, always with you',
-    description: 'A fast, simple and powerful note-taking app that works online and offline.',
-    siteName: 'NoteNest',
+    title: 'LifeMap OS — Your life. Your goals. In sync.',
+    description: 'The intelligent operating system designed to turn your long-term ambitions into daily momentum.',
+    siteName: 'LifeMap OS',
   },
   manifest: '/manifest.json',
   icons: {

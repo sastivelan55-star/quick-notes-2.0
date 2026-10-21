@@ -15,7 +15,14 @@ interface AppState {
   // ─── User ──────────────────────────────────────────────────
   userId: string | null;
   userEmail: string | null;
-  setUser: (id: string | null, email: string | null) => void;
+  userName: string | null;
+  userAvatar: string | null;
+  isGuest: boolean;
+  setUser: (
+    id: string | null,
+    email: string | null,
+    metadata?: { name?: string | null; avatar?: string | null; isGuest?: boolean }
+  ) => void;
 
   // ─── View ──────────────────────────────────────────────────
   activeView: AppView;
@@ -87,7 +94,29 @@ export const useAppStore = create<AppState>()(
       // User
       userId: null,
       userEmail: null,
-      setUser: (id, email) => set({ userId: id, userEmail: email }),
+      userName: null,
+      userAvatar: null,
+      isGuest: false,
+      setUser: (id, email, metadata) =>
+        set((state) => {
+          const userChanged = state.userId !== id;
+          return {
+            userId: id,
+            userEmail: email,
+            userName: metadata?.name ?? null,
+            userAvatar: metadata?.avatar ?? null,
+            isGuest: metadata?.isGuest ?? (id === 'local'),
+            ...(userChanged
+              ? {
+                  activeNoteId: null,
+                  notes: [],
+                  activeFolderId: null,
+                  selectedTagFilter: null,
+                  searchQuery: '',
+                }
+              : {}),
+          };
+        }),
 
       // View
       activeView: 'notes',

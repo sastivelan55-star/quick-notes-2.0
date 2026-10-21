@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "type-check": "tsc --noEmit",
-    "test": "node --test tests/ai-service.test.ts tests/domain-models.test.ts tests/sync-queue.test.ts tests/phase02.test.ts"
+    "test": "node --test tests/ai-service.test.ts tests/domain-models.test.ts tests/sync-queue.test.ts tests/phase02.test.ts tests/auth.test.ts"
   },
   "dependencies": {
     "@supabase/auth-helpers-nextjs": "^0.15.0",

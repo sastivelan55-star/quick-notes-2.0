@@ -49,20 +49,50 @@ export default function AppShell({ children }: AppShellProps) {
   useEffect(() => {
     const supabase = createClient();
     if (!supabase) {
-      setUser('local', 'local@flownote.local');
+      setUser('local', 'guest@notenest.local', { isGuest: true, name: 'Local Guest' });
       return;
     }
 
+    // Inspect initial user session
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
-        setUser(user.id, user.email ?? null);
+        const name = (user.user_metadata?.full_name as string) ||
+                     (user.user_metadata?.name as string) ||
+                     (user.email ? user.email.split('@')[0] : 'User');
+        const avatar = (user.user_metadata?.avatar_url as string) || null;
+        setUser(user.id, user.email ?? null, { name, avatar, isGuest: false });
+      } else {
+        const isGuest =
+          typeof document !== 'undefined' &&
+          (document.cookie.includes('lifemap_guest=1') || document.cookie.includes('notenest_guest=1'));
+        if (isGuest) {
+          setUser('local', 'guest@lifemap.local', { isGuest: true, name: 'Guest User' });
+        } else {
+          setUser(null, null);
+        }
       }
     });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user?.id ?? null, session?.user?.email ?? null);
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        const u = session.user;
+        const name = (u.user_metadata?.full_name as string) ||
+                     (u.user_metadata?.name as string) ||
+                     (u.email ? u.email.split('@')[0] : 'User');
+        const avatar = (u.user_metadata?.avatar_url as string) || null;
+        setUser(u.id, u.email ?? null, { name, avatar, isGuest: false });
+      } else if (event === 'SIGNED_OUT') {
+        const isGuest =
+          typeof document !== 'undefined' &&
+          (document.cookie.includes('lifemap_guest=1') || document.cookie.includes('notenest_guest=1'));
+        if (isGuest) {
+          setUser('local', 'guest@lifemap.local', { isGuest: true, name: 'Guest User' });
+        } else {
+          setUser(null, null);
+        }
+      }
     });
 
     return () => subscription.unsubscribe();

@@ -1,14 +1,23 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 
-// Creates a Supabase client for use in Server Components and API Routes.
-export async function createServerSupabaseClient() {
+function isConfigured(): boolean {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) return false;
+  if (url === 'https://your-project.supabase.co' || url.includes('your-project')) return false;
+  if (key === 'your-anon-key-here' || key.includes('your-anon-key')) return false;
+  return true;
+}
 
-  if (!url || !key || url === 'https://your-project.supabase.co') {
+// Creates a Supabase client for use in Server Components, Server Actions, and Route Handlers.
+export async function createServerSupabaseClient() {
+  if (!isConfigured()) {
     return null;
   }
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
   const cookieStore = await cookies();
 
@@ -23,7 +32,7 @@ export async function createServerSupabaseClient() {
             cookieStore.set(name, value, options)
           );
         } catch {
-          // Server component — cannot set cookies. Handled by middleware.
+          // Server Component — cannot set cookies. Handled by middleware or route handlers.
         }
       },
     },
@@ -36,8 +45,7 @@ export function createAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!url || !serviceKey) {
-    console.error('[FlowNote] Supabase admin client: missing SUPABASE_SERVICE_ROLE_KEY');
+  if (!url || !serviceKey || !isConfigured()) {
     return null;
   }
 

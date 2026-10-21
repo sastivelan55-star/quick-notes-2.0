@@ -4,18 +4,35 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 // Cache browser client instance across calls to avoid re-instantiation
 let clientInstance: SupabaseClient | null = null;
 
+const DEFAULT_SUPABASE_URL = 'https://cgfrebfcnreaabiqjnbd.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_AhpRAW8zXGPdzfY13gRyxA_G5l8uOxP';
+
+/**
+ * Resolves Supabase credentials with robust production fallbacks.
+ */
+export function getSupabaseCredentials(): { url: string; key: string } {
+  const envUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const envKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  const url =
+    envUrl && envUrl !== 'https://your-project.supabase.co' && !envUrl.includes('your-project')
+      ? envUrl
+      : DEFAULT_SUPABASE_URL;
+
+  const key =
+    envKey && envKey !== 'your-anon-key-here' && !envKey.includes('your-anon-key')
+      ? envKey
+      : DEFAULT_SUPABASE_ANON_KEY;
+
+  return { url, key };
+}
+
 /**
  * Checks whether Supabase environment variables are present and configured.
  */
 export function isSupabaseConfigured(): boolean {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!url || !key) return false;
-  if (url === 'https://your-project.supabase.co' || url.includes('your-project')) return false;
-  if (key === 'your-anon-key-here' || key.includes('your-anon-key')) return false;
-
-  return true;
+  const { url, key } = getSupabaseCredentials();
+  return Boolean(url && key);
 }
 
 /**
@@ -23,24 +40,16 @@ export function isSupabaseConfigured(): boolean {
  * Returns null if Supabase is not configured, enabling safe offline/local mode.
  */
 export function createClient(): SupabaseClient | null {
+  const { url, key } = getSupabaseCredentials();
+  if (!url || !key) return null;
+
   if (typeof window === 'undefined') {
-    // When called during SSR, do not cache client instance
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!isSupabaseConfigured() || !url || !key) return null;
     return createBrowserClient(url, key);
   }
 
   if (clientInstance) {
     return clientInstance;
   }
-
-  if (!isSupabaseConfigured()) {
-    return null;
-  }
-
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
   clientInstance = createBrowserClient(url, key);
   return clientInstance;

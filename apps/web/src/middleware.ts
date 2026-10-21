@@ -2,17 +2,24 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { getSafeReturnUrl } from '@/lib/auth/url';
 
-export async function middleware(request: NextRequest) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const DEFAULT_SUPABASE_URL = 'https://cgfrebfcnreaabiqjnbd.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_AhpRAW8zXGPdzfY13gRyxA_G5l8uOxP';
 
-  const isConfigured =
-    url &&
-    key &&
-    url !== 'https://your-project.supabase.co' &&
-    !url.includes('your-project') &&
-    key !== 'your-anon-key-here' &&
-    !key.includes('your-anon-key');
+export async function middleware(request: NextRequest) {
+  const envUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const envKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  const url =
+    envUrl && envUrl !== 'https://your-project.supabase.co' && !envUrl.includes('your-project')
+      ? envUrl
+      : DEFAULT_SUPABASE_URL;
+
+  const key =
+    envKey && envKey !== 'your-anon-key-here' && !envKey.includes('your-anon-key')
+      ? envKey
+      : DEFAULT_SUPABASE_ANON_KEY;
+
+  const isConfigured = Boolean(url && key);
 
   // If Supabase is not configured, allow local-only guest mode through to /app
   if (!isConfigured) {

@@ -1,23 +1,37 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 
+const DEFAULT_SUPABASE_URL = 'https://cgfrebfcnreaabiqjnbd.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_AhpRAW8zXGPdzfY13gRyxA_G5l8uOxP';
+
+function getSupabaseCredentials(): { url: string; key: string } {
+  const envUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const envKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  const url =
+    envUrl && envUrl !== 'https://your-project.supabase.co' && !envUrl.includes('your-project')
+      ? envUrl
+      : DEFAULT_SUPABASE_URL;
+
+  const key =
+    envKey && envKey !== 'your-anon-key-here' && !envKey.includes('your-anon-key')
+      ? envKey
+      : DEFAULT_SUPABASE_ANON_KEY;
+
+  return { url, key };
+}
+
 function isConfigured(): boolean {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !key) return false;
-  if (url === 'https://your-project.supabase.co' || url.includes('your-project')) return false;
-  if (key === 'your-anon-key-here' || key.includes('your-anon-key')) return false;
-  return true;
+  const { url, key } = getSupabaseCredentials();
+  return Boolean(url && key);
 }
 
 // Creates a Supabase client for use in Server Components, Server Actions, and Route Handlers.
 export async function createServerSupabaseClient() {
-  if (!isConfigured()) {
+  const { url, key } = getSupabaseCredentials();
+  if (!url || !key) {
     return null;
   }
-
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
   const cookieStore = await cookies();
 

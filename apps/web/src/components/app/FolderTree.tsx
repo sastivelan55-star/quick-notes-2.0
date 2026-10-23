@@ -11,6 +11,7 @@ import {
 } from '@/lib/services/folders';
 import type { LocalFolder } from '@/lib/db/local';
 import toast from 'react-hot-toast';
+import { onSyncDataChanged } from '@/lib/services/sync-worker';
 
 interface FolderNodeProps {
   folder: LocalFolder;
@@ -312,6 +313,10 @@ export default function FolderTree({ collapsed = false }: FolderTreeProps) {
 
   useEffect(() => {
     reload();
+    const unsub = onSyncDataChanged(() => {
+      reload();
+    });
+    return unsub;
   }, [reload]);
 
   async function handleAddFolder() {

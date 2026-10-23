@@ -20,6 +20,7 @@ import type { LocalNote } from '@/lib/db/local';
 import { format, isToday, isYesterday, formatDistanceToNow } from 'date-fns';
 import toast from 'react-hot-toast';
 import type { NoteTemplate } from '@/lib/templates/note-templates';
+import { onSyncDataChanged } from '@/lib/services/sync-worker';
 
 const RichEditor = dynamic(() => import('@/components/editor/RichEditor'), { ssr: false });
 const TemplateSelector = dynamic(() => import('@/components/editor/TemplateSelector'), { ssr: false });
@@ -103,6 +104,10 @@ export default function NotesView({ status = 'active', filter = 'all' }: NotesVi
 
   useEffect(() => {
     loadNotes();
+    const unsub = onSyncDataChanged(() => {
+      loadNotes();
+    });
+    return unsub;
   }, [loadNotes]);
 
   // Search filter

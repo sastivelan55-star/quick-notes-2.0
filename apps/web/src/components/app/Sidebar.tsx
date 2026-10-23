@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import { createNote } from '@/lib/services/notes';
 import FolderTree from '@/components/app/FolderTree';
+import { triggerSyncNow, getSyncDiagnostics } from '@/lib/services/sync-worker';
 import toast from 'react-hot-toast';
 
 const NAV_ITEMS: {
@@ -374,10 +375,36 @@ export default function Sidebar() {
 
           {/* Sync status */}
           {!sidebarCollapsed && (
-            <div className="sync-status" style={{ padding: 'var(--space-2)' }}>
+            <button
+              className="sync-status"
+              style={{
+                padding: 'var(--space-2)',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--space-2)',
+                textAlign: 'left',
+                color: 'inherit',
+                font: 'inherit',
+              }}
+              onClick={() => {
+                triggerSyncNow();
+                const d = getSyncDiagnostics();
+                if (d.userId) {
+                  toast.success(`Sync active (User ${d.userMaskedId ?? 'authenticated'}, ${d.pendingCount} pending)`);
+                } else {
+                  toast('Running in local mode');
+                }
+              }}
+              title="Click to trigger cloud synchronization"
+              aria-label="Cloud synchronization status"
+            >
               <div className={syncDotClass} />
               <span>{syncStatus === 'syncing' && pendingSyncCount > 0 ? `Syncing ${pendingSyncCount}...` : syncLabel}</span>
-            </div>
+            </button>
           )}
 
           {/* Theme toggle */}

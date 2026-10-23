@@ -15,6 +15,7 @@ import {
 import type { LocalTask } from '@/lib/db/local';
 import { format, isToday, isPast, parseISO } from 'date-fns';
 import toast from 'react-hot-toast';
+import { onSyncDataChanged } from '@/lib/services/sync-worker';
 
 type TaskFilter = 'all' | 'today' | 'overdue' | 'done';
 
@@ -70,6 +71,10 @@ export default function TasksView() {
 
   useEffect(() => {
     loadTasks();
+    const unsub = onSyncDataChanged(() => {
+      loadTasks();
+    });
+    return unsub;
   }, [loadTasks]);
 
   async function handleAddTask() {

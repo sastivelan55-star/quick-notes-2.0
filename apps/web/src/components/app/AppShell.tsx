@@ -3,7 +3,7 @@
 import { useEffect, useCallback } from 'react';
 import { useAppStore } from '@/store/app-store';
 import { createClient } from '@/lib/supabase/client';
-import { startSyncWorker, onSyncStatus } from '@/lib/services/sync-worker';
+import { startSyncWorker, onSyncStatus, triggerSyncNow } from '@/lib/services/sync-worker';
 import { getQueueSize } from '@/lib/services/sync-queue';
 import Sidebar from './Sidebar';
 import OfflineBanner from './OfflineBanner';
@@ -61,6 +61,7 @@ export default function AppShell({ children }: AppShellProps) {
                      (user.email ? user.email.split('@')[0] : 'User');
         const avatar = (user.user_metadata?.avatar_url as string) || null;
         setUser(user.id, user.email ?? null, { name, avatar, isGuest: false });
+        triggerSyncNow();
       } else {
         const isGuest =
           typeof document !== 'undefined' &&
@@ -83,6 +84,7 @@ export default function AppShell({ children }: AppShellProps) {
                      (u.email ? u.email.split('@')[0] : 'User');
         const avatar = (u.user_metadata?.avatar_url as string) || null;
         setUser(u.id, u.email ?? null, { name, avatar, isGuest: false });
+        triggerSyncNow();
       } else if (event === 'SIGNED_OUT') {
         const isGuest =
           typeof document !== 'undefined' &&

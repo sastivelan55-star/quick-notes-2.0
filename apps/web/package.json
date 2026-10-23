@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "type-check": "tsc --noEmit",
-    "test": "node --test tests/ai-service.test.ts tests/domain-models.test.ts tests/sync-queue.test.ts tests/phase02.test.ts tests/auth.test.ts"
+    "test": "node --test tests/ai-service.test.ts tests/domain-models.test.ts tests/sync-queue.test.ts tests/phase02.test.ts tests/auth.test.ts tests/cross-device-sync.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

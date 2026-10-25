@@ -9,12 +9,11 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import { createClient, type SupabaseClient } from '@/lib/supabase/client';
-import { getLocalDB, type LocalNote, type LocalTask, type LocalFolder, type LocalTag } from '@/lib/db/local';
-import { getPendingItems, markSynced, markFailed, getQueueSize } from './sync-queue';
+import { getLocalDB } from '@/lib/db/local';
+import { getPendingItems, markSynced, markFailed, getQueueSize, registerQueueTrigger } from './sync-queue';
 
 const MAX_RETRY = 5;
 const SYNC_INTERVAL_MS = 8000;
-const RETRY_DELAY_BASE_MS = 2000;
 
 let syncTimer: ReturnType<typeof setTimeout> | null = null;
 let isSyncing = false;
@@ -126,8 +125,11 @@ export function startSyncWorker() {
   if (workerStarted) return;
   workerStarted = true;
 
-  // Immediate schedule
-  schedulSync(500);
+  // Immediately hook into queue insertions so local mutations trigger upload without waiting for interval
+  registerQueueTrigger(() => schedulSync(100));
+
+  // Immediate initial schedule
+  schedulSync(300);
 
   // Network and window lifecycle listeners
   window.addEventListener('online', () => schedulSync(0));
@@ -225,8 +227,19 @@ export async function runSync() {
         continue;
       }
 
+      // Purge and acknowledge any local draft items that might have entered queue
+      if (item.entity_id === 'DRAFT_NOTE') {
+        await markSynced(item.id);
+        continue;
+      }
+
       try {
         const payload = JSON.parse(item.payload);
+
+        if (payload?.id === 'DRAFT_NOTE' || payload?.is_draft) {
+          await markSynced(item.id);
+          continue;
+        }
 
         // Security check: ensure item belongs to currently authenticated user
         if (payload.user_id && payload.user_id !== user.id && payload.user_id !== 'local') {
@@ -320,9 +333,22 @@ function setupRealtime(supabase: SupabaseClient, userId: string) {
       .channel(`user-sync-${userId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', filter: `user_id=eq.${userId}` },
+        { event: '*', schema: 'public', table: 'notes', filter: `user_id=eq.${userId}` },
         () => {
-          // Received realtime change from another device; trigger fast pull
+          schedulSync(300);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tasks', filter: `user_id=eq.${userId}` },
+        () => {
+          schedulSync(300);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'folders', filter: `user_id=eq.${userId}` },
+        () => {
           schedulSync(300);
         }
       )
@@ -357,6 +383,95 @@ async function updateLocalSyncStatus(
   }
 }
 
+interface RemoteFolderRow {
+  id: string;
+  user_id: string;
+  name: string;
+  parent_id?: string | null;
+  color?: string | null;
+  icon?: string | null;
+  sort_order?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface RemoteTagRow {
+  id: string;
+  user_id: string;
+  name: string;
+  color?: string | null;
+  created_at: string;
+}
+
+interface RemoteNoteRow {
+  id: string;
+  user_id: string;
+  title?: string | null;
+  content?: string | null;
+  content_text?: string | null;
+  type?: 'note' | 'journal' | 'task_list' | null;
+  status?: string | null;
+  folder_id?: string | null;
+  is_pinned?: boolean | null;
+  is_favorite?: boolean | null;
+  color?: string | null;
+  word_count?: number | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string | null;
+}
+
+interface RemoteTaskRow {
+  id: string;
+  user_id: string;
+  note_id?: string | null;
+  parent_task_id?: string | null;
+  title: string;
+  description?: string | null;
+  status?: string | null;
+  priority?: string | null;
+  due_date?: string | null;
+  start_date?: string | null;
+  completed_at?: string | null;
+  is_deleted?: boolean | null;
+  deleted_at?: string | null;
+  sort_order?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function mapRemoteNoteStatus(
+  status?: string | null,
+  fallback: 'active' | 'archived' | 'deleted' = 'active'
+): 'active' | 'archived' | 'deleted' {
+  if (status === 'trashed' || status === 'deleted') return 'deleted';
+  if (status === 'archived') return 'archived';
+  if (status === 'active') return 'active';
+  return fallback;
+}
+
+function mapRemoteTaskStatus(
+  status?: string | null,
+  fallback: 'open' | 'in_progress' | 'blocked' | 'waiting' | 'done' = 'open'
+): 'open' | 'in_progress' | 'blocked' | 'waiting' | 'done' {
+  if (status === 'completed' || status === 'done') return 'done';
+  if (status === 'in_progress') return 'in_progress';
+  if (status === 'blocked') return 'blocked';
+  if (status === 'waiting') return 'waiting';
+  if (status === 'open' || status === 'pending') return 'open';
+  return fallback;
+}
+
+function mapRemoteTaskPriority(
+  priority?: string | null,
+  fallback: 'none' | 'low' | 'medium' | 'high' | 'urgent' = 'none'
+): 'none' | 'low' | 'medium' | 'high' | 'urgent' {
+  if (priority === 'urgent' || priority === 'high' || priority === 'medium' || priority === 'low') {
+    return priority;
+  }
+  return fallback;
+}
+
 // ─── Cloud-to-Local Reconciler (PULL) ────────────────────────────
 async function pullRemoteChanges(
   supabase: SupabaseClient,
@@ -376,10 +491,10 @@ async function pullRemoteChanges(
     remoteTasks,
     remoteNoteTags,
   ] = await Promise.all([
-    fetchAllUserRecords<any>(supabase, 'folders', userId),
-    fetchAllUserRecords<any>(supabase, 'tags', userId),
-    fetchAllUserRecords<any>(supabase, 'notes', userId),
-    fetchAllUserRecords<any>(supabase, 'tasks', userId),
+    fetchAllUserRecords<RemoteFolderRow>(supabase, 'folders', userId),
+    fetchAllUserRecords<RemoteTagRow>(supabase, 'tags', userId),
+    fetchAllUserRecords<RemoteNoteRow>(supabase, 'notes', userId),
+    fetchAllUserRecords<RemoteTaskRow>(supabase, 'tasks', userId),
     fetchAllNoteTags(supabase),
   ]);
 
@@ -466,7 +581,7 @@ async function pullRemoteChanges(
         content: rn.content ?? '{"type":"doc","content":[{"type":"paragraph"}]}',
         content_text: rn.content_text ?? '',
         type: rn.type ?? 'note',
-        status: rn.status ?? 'active',
+        status: mapRemoteNoteStatus(rn.status),
         folder_id: rn.folder_id ?? null,
         is_pinned: Boolean(rn.is_pinned),
         is_favorite: Boolean(rn.is_favorite),
@@ -508,13 +623,13 @@ async function pullRemoteChanges(
             content: rn.content ?? local.content,
             content_text: rn.content_text ?? '',
             type: rn.type ?? local.type,
-            status: rn.status ?? local.status,
+            status: mapRemoteNoteStatus(rn.status, local.status),
             folder_id: rn.folder_id ?? null,
             is_pinned: Boolean(rn.is_pinned),
             is_favorite: Boolean(rn.is_favorite),
             color: rn.color ?? null,
             word_count: rn.word_count ?? local.word_count,
-            tags: attachedTags.length > 0 ? attachedTags : local.tags,
+            tags: attachedTags,
             updated_at: rn.updated_at,
             deleted_at: rn.deleted_at ?? null,
             sync_status: 'synced',
@@ -541,11 +656,11 @@ async function pullRemoteChanges(
             title: rn.title ?? '',
             content: rn.content ?? local.content,
             content_text: rn.content_text ?? '',
-            status: rn.status ?? local.status,
+            status: mapRemoteNoteStatus(rn.status, local.status),
             folder_id: rn.folder_id ?? null,
             is_pinned: Boolean(rn.is_pinned),
             is_favorite: Boolean(rn.is_favorite),
-            tags: attachedTags.length > 0 ? attachedTags : local.tags,
+            tags: attachedTags,
             updated_at: rn.updated_at,
             deleted_at: rn.deleted_at ?? null,
             sync_status: 'synced',
@@ -582,12 +697,13 @@ async function pullRemoteChanges(
         parent_task_id: rt.parent_task_id ?? null,
         title: rt.title,
         description: rt.description ?? null,
-        status: rt.status,
-        priority: rt.priority,
+        status: mapRemoteTaskStatus(rt.status),
+        priority: mapRemoteTaskPriority(rt.priority),
         due_date: rt.due_date ?? null,
         start_date: rt.start_date ?? null,
         completed_at: rt.completed_at ?? null,
         is_deleted: Boolean(rt.is_deleted),
+        deleted_at: rt.deleted_at ?? null,
         sort_order: rt.sort_order ?? 0,
         created_at: rt.created_at,
         updated_at: rt.updated_at,
@@ -603,12 +719,13 @@ async function pullRemoteChanges(
           parent_task_id: rt.parent_task_id ?? null,
           title: rt.title,
           description: rt.description ?? null,
-          status: rt.status,
-          priority: rt.priority,
+          status: mapRemoteTaskStatus(rt.status, local.status),
+          priority: mapRemoteTaskPriority(rt.priority, local.priority),
           due_date: rt.due_date ?? null,
           start_date: rt.start_date ?? null,
           completed_at: rt.completed_at ?? null,
           is_deleted: Boolean(rt.is_deleted),
+          deleted_at: rt.deleted_at ?? null,
           sort_order: rt.sort_order ?? 0,
           updated_at: rt.updated_at,
           sync_status: 'synced',
@@ -684,6 +801,7 @@ async function syncNote(
 ) {
   if (!supabase) return;
   const noteId = String(payload.id);
+  if (!noteId || noteId === 'DRAFT_NOTE') return;
 
   if (operation === 'delete') {
     // Delete note_tags associations first
@@ -711,9 +829,21 @@ async function syncNote(
   const cleanPayload: Record<string, unknown> = { user_id: userId };
   for (const field of allowedNoteFields) {
     if (field in payload && payload[field] !== undefined) {
-      cleanPayload[field] = payload[field];
+      let val = payload[field];
+      // Sanitize empty strings to null for PostgreSQL foreign keys and timestamps
+      if (val === '' && (field === 'folder_id' || field === 'deleted_at' || field === 'color')) {
+        val = null;
+      }
+      cleanPayload[field] = val;
     }
   }
+
+  // Ensure default string values
+  if (cleanPayload.title === undefined || cleanPayload.title === null) cleanPayload.title = '';
+  if (cleanPayload.content === undefined || cleanPayload.content === null) cleanPayload.content = '';
+  if (cleanPayload.content_text === undefined || cleanPayload.content_text === null) cleanPayload.content_text = '';
+  if (!cleanPayload.type) cleanPayload.type = 'note';
+  if (!cleanPayload.status) cleanPayload.status = 'active';
 
   const { error } = await supabase.from('notes').upsert(
     cleanPayload,
@@ -743,6 +873,7 @@ async function syncNoteTags(
 
     const targetTagIds: string[] = [];
     for (const name of trimmedNames) {
+      // Query existing tag for this user
       const { data: existing } = await supabase
         .from('tags')
         .select('id')
@@ -754,19 +885,34 @@ async function syncNoteTags(
         targetTagIds.push(existing.id);
       } else {
         const newId = uuidv4();
-        const { data: created, error: createErr } = await supabase
+        // Safe upsert with user_id, name conflict handling
+        const { data: upserted } = await supabase
           .from('tags')
-          .insert({ id: newId, user_id: userId, name })
+          .upsert(
+            { id: newId, user_id: userId, name },
+            { onConflict: 'user_id, name' }
+          )
           .select('id')
           .maybeSingle();
 
-        if (created?.id) {
-          targetTagIds.push(created.id);
-        } else if (!createErr) {
-          targetTagIds.push(newId);
+        if (upserted?.id) {
+          targetTagIds.push(upserted.id);
+        } else {
+          // Re-fetch in case conflict occurred without return
+          const { data: recheck } = await supabase
+            .from('tags')
+            .select('id')
+            .eq('user_id', userId)
+            .ilike('name', name)
+            .maybeSingle();
+          if (recheck?.id) {
+            targetTagIds.push(recheck.id);
+          }
         }
       }
     }
+
+    if (targetTagIds.length === 0) return;
 
     // Query current note_tags
     const { data: currentLinks } = await supabase
@@ -774,7 +920,7 @@ async function syncNoteTags(
       .select('tag_id')
       .eq('note_id', noteId);
 
-    const currentTagIds = new Set((currentLinks ?? []).map((l: any) => l.tag_id));
+    const currentTagIds = new Set((currentLinks ?? []).map((l: { tag_id: string }) => l.tag_id));
     const targetTagIdSet = new Set(targetTagIds);
 
     // Delete unassociated
@@ -810,9 +956,10 @@ async function syncTask(
   if (!supabase) return;
 
   if (operation === 'delete') {
+    // permanentDeleteTask sends a 'delete' operation — hard-delete from server
     const { error } = await supabase
       .from('tasks')
-      .update({ is_deleted: true, updated_at: new Date().toISOString() })
+      .delete()
       .eq('id', payload.id)
       .eq('user_id', userId);
     if (error) throw new Error(error.message);
@@ -822,12 +969,16 @@ async function syncTask(
   const allowedTaskFields = [
     'id', 'note_id', 'parent_task_id', 'title', 'description',
     'status', 'priority', 'due_date', 'start_date', 'completed_at',
-    'is_deleted', 'sort_order', 'created_at', 'updated_at'
+    'is_deleted', 'deleted_at', 'sort_order', 'created_at', 'updated_at'
   ];
   const cleanPayload: Record<string, unknown> = { user_id: userId };
   for (const field of allowedTaskFields) {
     if (field in payload && payload[field] !== undefined) {
-      cleanPayload[field] = payload[field];
+      let val = payload[field];
+      if (val === '' && (field === 'note_id' || field === 'parent_task_id' || field === 'due_date' || field === 'start_date' || field === 'completed_at' || field === 'description' || field === 'deleted_at')) {
+        val = null;
+      }
+      cleanPayload[field] = val;
     }
   }
 
@@ -864,7 +1015,11 @@ async function syncFolder(
   const cleanPayload: Record<string, unknown> = { user_id: userId };
   for (const field of allowedFolderFields) {
     if (field in payload && payload[field] !== undefined) {
-      cleanPayload[field] = payload[field];
+      let val = payload[field];
+      if (val === '' && (field === 'parent_id' || field === 'color' || field === 'icon')) {
+        val = null;
+      }
+      cleanPayload[field] = val;
     }
   }
 
@@ -902,7 +1057,11 @@ async function syncTag(
   const cleanPayload: Record<string, unknown> = { user_id: userId };
   for (const field of allowedTagFields) {
     if (field in payload && payload[field] !== undefined) {
-      cleanPayload[field] = payload[field];
+      let val = payload[field];
+      if (val === '' && field === 'color') {
+        val = null;
+      }
+      cleanPayload[field] = val;
     }
   }
 

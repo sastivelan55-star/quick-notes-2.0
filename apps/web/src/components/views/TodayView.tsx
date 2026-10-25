@@ -1,34 +1,44 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useAppStore } from '@/store/app-store';
 import { getTodayTasks, getOverdueTasks } from '@/lib/services/tasks';
 import { listNotes } from '@/lib/services/notes';
 import type { LocalTask, LocalNote } from '@/lib/db/local';
 import { format, isToday, isPast, parseISO } from 'date-fns';
+import { onSyncDataChanged } from '@/lib/services/sync-worker';
 
 export default function TodayView() {
   const { userId, setActiveView, setActiveNoteId } = useAppStore();
+  const [loading, setLoading] = useState(true);
   const [todayTasks, setTodayTasks] = useState<LocalTask[]>([]);
   const [overdueTasks, setOverdueTasks] = useState<LocalTask[]>([]);
   const [recentNotes, setRecentNotes] = useState<LocalNote[]>([]);
-  const [loading, setLoading] = useState(true);
-
   useEffect(() => {
-    if (!userId) return;
-    async function load() {
-      setLoading(true);
+    let cancelled = false;
+    async function fetchLatest() {
+      if (!userId) return;
       const [today, overdue, notes] = await Promise.all([
-        getTodayTasks(userId!),
-        getOverdueTasks(userId!),
-        listNotes(userId!, { limit: 5 }),
+        getTodayTasks(userId),
+        getOverdueTasks(userId),
+        listNotes(userId, { limit: 5 }),
       ]);
-      setTodayTasks(today);
-      setOverdueTasks(overdue);
-      setRecentNotes(notes);
-      setLoading(false);
+      if (!cancelled) {
+        setTodayTasks(today);
+        setOverdueTasks(overdue);
+        setRecentNotes(notes);
+        setLoading(false);
+      }
     }
-    load();
+
+    fetchLatest();
+    const unsub = onSyncDataChanged(() => {
+      fetchLatest();
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
   }, [userId]);
 
   const today = new Date();

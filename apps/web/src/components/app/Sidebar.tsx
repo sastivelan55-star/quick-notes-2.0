@@ -255,23 +255,30 @@ export default function Sidebar() {
               overflow: 'hidden',
             }}
             onClick={async () => {
-              const uid = useAppStore.getState().userId;
-              if (uid) {
-                try {
-                  const newNote = await createNote(uid, {
-                    title: 'Untitled Note',
-                    content: '',
-                    content_text: '',
-                    word_count: 0,
-                    tags: ['Ideas'],
-                  });
-                  useAppStore.getState().setActiveView('notes');
-                  useAppStore.getState().setActiveNoteId(newNote.id);
-                  toast.success('Note created');
-                } catch {
-                  useAppStore.getState().setActiveView('notes');
+              let uid = useAppStore.getState().userId;
+              if (!uid) {
+                const supabase = createClient();
+                if (supabase) {
+                  const { data: { user } } = await supabase.auth.getUser();
+                  if (user) {
+                    uid = user.id;
+                    useAppStore.getState().setUser(user.id, user.email ?? null);
+                  }
                 }
-              } else {
+              }
+              if (!uid) uid = 'local';
+              try {
+                const newNote = await createNote(uid, {
+                  title: 'Untitled Note',
+                  content: '{"type":"doc","content":[{"type":"paragraph"}]}',
+                  content_text: '',
+                  word_count: 0,
+                  tags: ['Ideas'],
+                });
+                useAppStore.getState().setActiveView('notes');
+                useAppStore.getState().setActiveNoteId(newNote.id);
+                toast.success('Note created');
+              } catch {
                 useAppStore.getState().setActiveView('notes');
               }
               setMobileSidebarOpen(false);

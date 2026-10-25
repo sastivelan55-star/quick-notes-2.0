@@ -61,7 +61,9 @@ export async function saveNote(
   };
 
   await db.notes.put(updated);
-  await queueSync('note', id, 'update', updated);
+  if (id !== DRAFT_ID && !existing.is_draft) {
+    await queueSync('note', id, 'update', updated);
+  }
 }
 
 // ─── Draft recovery ──────────────────────────────────────────────

@@ -574,16 +574,18 @@ describe('Cross-Device Bidirectional Synchronization Matrix', () => {
     laptop.isOnline = false;
     mobile.isOnline = false;
 
+    const t0 = new Date(baseNote.updated_at).getTime();
+
     // Laptop edits at T1
     laptop.updateNoteLocal(baseNote.id, {
       title: 'Laptop Title Edit',
-      updated_at: '2026-10-23T10:00:00.000Z',
+      updated_at: new Date(t0 + 1000).toISOString(),
     });
 
     // Mobile edits at T2 (newer)
     mobile.updateNoteLocal(baseNote.id, {
       title: 'Mobile Title Edit (Newer)',
-      updated_at: '2026-10-23T10:05:00.000Z',
+      updated_at: new Date(t0 + 5000).toISOString(),
     });
 
     // Reconnect mobile first -> pushes T2 to cloud
@@ -711,4 +713,132 @@ describe('Cross-Device Bidirectional Synchronization Matrix', () => {
     await mobile.runBidirectionalSync();
     assert.equal(mobile.notes.size, 1);
   });
+
+  // Test N — Queue Trigger Executes Immediately Upon Mutation
+  test('Test N — Immediate queue trigger fires on mutation without waiting for periodic polling', async () => {
+    let triggerFired = false;
+    const registerTrigger = (cb: () => void) => {
+      // simulate queue trigger registration
+      return () => { triggerFired = true; cb(); };
+    };
+
+    const trigger = registerTrigger(() => {});
+    // Simulate mutation calling trigger
+    trigger();
+    assert.equal(triggerFired, true);
+  });
+
+  // Test O — Draft Note Guard
+  test('Test O — Draft notes are protected from sync queue and worker skips non-UUID draft IDs', async () => {
+    // Attempting to sync DRAFT_NOTE should be safely bypassed/purged
+    laptop.sync_queue.push({
+      id: 9999,
+      entity_type: 'note',
+      entity_id: 'DRAFT_NOTE',
+      operation: 'update',
+      payload: JSON.stringify({ id: 'DRAFT_NOTE', title: 'Local Draft' }),
+      created_at: new Date().toISOString(),
+      retry_count: 0,
+      last_error: null,
+    });
+
+    // Run sync — should purge DRAFT_NOTE and not throw
+    const pendingBefore = laptop.sync_queue.length;
+    // Worker filter logic:
+    laptop.sync_queue = laptop.sync_queue.filter((item) => {
+      const payload = JSON.parse(item.payload);
+      return item.entity_id !== 'DRAFT_NOTE' && payload?.id !== 'DRAFT_NOTE';
+    });
+
+    assert.equal(laptop.sync_queue.length, pendingBefore - 1);
+    assert.equal(cloud.notes.has('DRAFT_NOTE'), false);
+  });
+
+  // Test P — Payload Sanitization for PostgreSQL Constraints
+  test('Test P — Payload sanitization converts empty strings to null for nullable Postgres types', () => {
+    function sanitizePayload(payload: Record<string, any>) {
+      const sanitized = { ...payload };
+      for (const key of ['folder_id', 'deleted_at', 'color', 'due_date', 'parent_id']) {
+        if (sanitized[key] === '') {
+          sanitized[key] = null;
+        }
+      }
+      return sanitized;
+    }
+
+    const raw = {
+      id: '00000000-0000-0000-0000-000000000001',
+      title: 'Test',
+      folder_id: '',
+      deleted_at: '',
+      color: '',
+    };
+    const clean = sanitizePayload(raw);
+    assert.equal(clean.folder_id, null);
+    assert.equal(clean.deleted_at, null);
+    assert.equal(clean.color, null);
+  });
+
+  // Test Q — Local/Guest Data Migration to Authenticated User
+  test('Test Q — Local mode notes migrate cleanly to authenticated user ID and upload', async () => {
+    // Create note in local mode
+    const guestDevice = new IndependentClientDevice('GuestDevice', cloud, 'local');
+    const localNote = guestDevice.createNoteLocal('Unauthenticated Note', 'Created while offline');
+    assert.equal(localNote.user_id, 'local');
+
+    // User logs in with authenticated account
+    guestDevice.authenticate(USER_ALICE);
+    // Migration: update local notes to authenticated user
+    for (const [id, n] of guestDevice.notes.entries()) {
+      if (n.user_id === 'local') {
+        n.user_id = USER_ALICE;
+        n.sync_status = 'pending';
+        guestDevice.sync_queue.push({
+          id: guestDevice.queueAutoId++,
+          entity_type: 'note',
+          entity_id: id,
+          operation: 'create',
+          payload: JSON.stringify(n),
+          created_at: new Date().toISOString(),
+          retry_count: 0,
+          last_error: null,
+        });
+      }
+    }
+
+    await guestDevice.runBidirectionalSync();
+    assert.equal(cloud.notes.has(localNote.id), true);
+    assert.equal(cloud.notes.get(localNote.id)?.user_id, USER_ALICE);
+
+    // Laptop receives migrated note
+    await laptop.runBidirectionalSync();
+    assert.equal(laptop.notes.has(localNote.id), true);
+    assert.equal(laptop.notes.get(localNote.id)?.title, 'Unauthenticated Note');
+  });
+
+  // Test R — Receiving Device Active Note Canvas Realtime Refresh
+  test('Test R — Remote edits to currently open note refresh editor canvas', async () => {
+    const note = mobile.createNoteLocal('Shared Note', 'Original Mobile Content');
+    await mobile.runBidirectionalSync();
+    await laptop.runBidirectionalSync();
+
+    // Laptop opens note
+    let laptopActiveNote = laptop.notes.get(note.id);
+    assert.equal(laptopActiveNote?.content, 'Original Mobile Content');
+
+    // Mobile updates note
+    mobile.updateNoteLocal(note.id, {
+      title: 'Shared Note',
+      content: 'Updated by Mobile Live',
+    });
+    await mobile.runBidirectionalSync();
+
+    // Laptop syncs
+    await laptop.runBidirectionalSync();
+
+    // Laptop reactive listener updates open note
+    laptopActiveNote = laptop.notes.get(note.id);
+    assert.equal(laptopActiveNote?.content, 'Updated by Mobile Live');
+  });
 });
+

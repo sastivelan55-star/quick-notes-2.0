@@ -106,9 +106,18 @@ export default function NotesView({ status = 'active', filter = 'all' }: NotesVi
     loadNotes();
     const unsub = onSyncDataChanged(() => {
       loadNotes();
+      if (activeNoteId) {
+        getNote(activeNoteId).then((n) => {
+          if (n) {
+            setActiveNote(n);
+            setEditTitle(n.title);
+            setEditContent(n.content);
+          }
+        });
+      }
     });
     return unsub;
-  }, [loadNotes]);
+  }, [loadNotes, activeNoteId]);
 
   // Search filter
   useEffect(() => {

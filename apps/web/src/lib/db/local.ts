@@ -71,6 +71,7 @@ export interface LocalTask {
   start_date: string | null;
   completed_at: string | null;
   is_deleted: boolean;
+  deleted_at: string | null; // soft-delete timestamp for Recycle Bin
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -156,6 +157,26 @@ class FlowNoteDB extends Dexie {
       ai_jobs: '++id, note_id, status, created_at',
       settings: 'key',
       note_revisions: '++id, note_id, saved_at, revision_type',
+    });
+
+    // v3 — adds deleted_at index to tasks for Recycle Bin support
+    this.version(3).stores({
+      notes: 'id, user_id, status, folder_id, updated_at, sync_status, is_pinned, is_favorite, is_draft',
+      folders: 'id, user_id, parent_id, sync_status',
+      tags: 'id, user_id, name, sync_status',
+      note_tags: '[note_id+tag_id], note_id, tag_id',
+      tasks: 'id, user_id, note_id, parent_task_id, status, priority, due_date, is_deleted, deleted_at, sync_status',
+      sync_queue: '++id, entity_type, entity_id, created_at',
+      ai_jobs: '++id, note_id, status, created_at',
+      settings: 'key',
+      note_revisions: '++id, note_id, saved_at, revision_type',
+    }).upgrade((tx) => {
+      // Backfill deleted_at = null for all existing task records
+      return tx.table('tasks').toCollection().modify((task: Record<string, unknown>) => {
+        if (!('deleted_at' in task)) {
+          task.deleted_at = null;
+        }
+      });
     });
   }
 }

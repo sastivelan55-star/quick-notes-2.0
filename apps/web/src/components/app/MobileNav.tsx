@@ -17,8 +17,23 @@ export default function MobileNav() {
   } = useAppStore();
 
   async function handleFabClick() {
-    if (!userId) return;
     try {
+      let effectiveUserId = userId;
+      if (!effectiveUserId) {
+        const { createClient } = await import('@/lib/supabase/client');
+        const supabase = createClient();
+        if (supabase) {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            effectiveUserId = user.id;
+            useAppStore.getState().setUser(user.id, user.email ?? null);
+          }
+        }
+      }
+      if (!effectiveUserId) {
+        effectiveUserId = 'local';
+      }
+
       if (activeView === 'tasks') {
         // Focus or trigger task creation
         setActiveView('tasks');
@@ -26,9 +41,9 @@ export default function MobileNav() {
         if (input) input.focus();
         toast('Add your task below');
       } else {
-        const newNote = await createNote(userId, {
+        const newNote = await createNote(effectiveUserId, {
           title: 'New Note',
-          content: '',
+          content: '{"type":"doc","content":[{"type":"paragraph"}]}',
           content_text: '',
           word_count: 0,
           tags: ['Ideas'],

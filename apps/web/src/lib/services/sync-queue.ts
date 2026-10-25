@@ -6,12 +6,24 @@
  */
 import { getLocalDB, type LocalSyncQueueItem } from '@/lib/db/local';
 
+type QueueTriggerCallback = () => void;
+let queueTriggerCallback: QueueTriggerCallback | null = null;
+
+export function registerQueueTrigger(cb: QueueTriggerCallback) {
+  queueTriggerCallback = cb;
+}
+
 export async function queueSync(
   entityType: LocalSyncQueueItem['entity_type'],
   entityId: string,
   operation: LocalSyncQueueItem['operation'],
   payload: unknown
 ): Promise<void> {
+  // Never enqueue local drafts into cloud sync queue
+  if (entityId === 'DRAFT_NOTE') {
+    return;
+  }
+
   try {
     const db = getLocalDB();
     const item: LocalSyncQueueItem = {
@@ -24,6 +36,15 @@ export async function queueSync(
       last_error: null,
     };
     await db.sync_queue.put(item);
+
+    // Immediately notify sync worker to process in-flight mutation without waiting for periodic polling
+    if (queueTriggerCallback) {
+      try {
+        queueTriggerCallback();
+      } catch {
+        // Safe trigger
+      }
+    }
   } catch (e) {
     // Sync queue failure should never break local editing
     console.warn('[SyncQueue] Failed to enqueue:', e);

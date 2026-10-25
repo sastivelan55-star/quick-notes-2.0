@@ -53,14 +53,49 @@ export default function AppShell({ children }: AppShellProps) {
       return;
     }
 
+    // Helper to migrate any offline/local notes and tasks to authenticated user
+    async function migrateLocalDataToUser(authenticatedUserId: string) {
+      if (!authenticatedUserId || authenticatedUserId === 'local') return;
+      try {
+        const { getLocalDB } = await import('@/lib/db/local');
+        const { queueSync } = await import('@/lib/services/sync-queue');
+        const db = getLocalDB();
+
+        const localNotes = await db.notes.where('user_id').equals('local').toArray();
+        for (const note of localNotes) {
+          if (note.id === 'DRAFT_NOTE') continue;
+          const updated = { ...note, user_id: authenticatedUserId, sync_status: 'pending' as const };
+          await db.notes.put(updated);
+          await queueSync('note', note.id, 'create', updated);
+        }
+
+        const localTasks = await db.tasks.where('user_id').equals('local').toArray();
+        for (const task of localTasks) {
+          const updated = { ...task, user_id: authenticatedUserId, sync_status: 'pending' as const };
+          await db.tasks.put(updated);
+          await queueSync('task', task.id, 'create', updated);
+        }
+
+        const localFolders = await db.folders.where('user_id').equals('local').toArray();
+        for (const folder of localFolders) {
+          const updated = { ...folder, user_id: authenticatedUserId, sync_status: 'pending' as const };
+          await db.folders.put(updated);
+          await queueSync('folder', folder.id, 'create', updated);
+        }
+      } catch (err) {
+        console.warn('[AppShell] Local data migration error:', err);
+      }
+    }
+
     // Inspect initial user session
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (user) {
         const name = (user.user_metadata?.full_name as string) ||
                      (user.user_metadata?.name as string) ||
                      (user.email ? user.email.split('@')[0] : 'User');
         const avatar = (user.user_metadata?.avatar_url as string) || null;
         setUser(user.id, user.email ?? null, { name, avatar, isGuest: false });
+        await migrateLocalDataToUser(user.id);
         triggerSyncNow();
       } else {
         const isGuest =
@@ -76,7 +111,7 @@ export default function AppShell({ children }: AppShellProps) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
         const u = session.user;
         const name = (u.user_metadata?.full_name as string) ||
@@ -84,6 +119,7 @@ export default function AppShell({ children }: AppShellProps) {
                      (u.email ? u.email.split('@')[0] : 'User');
         const avatar = (u.user_metadata?.avatar_url as string) || null;
         setUser(u.id, u.email ?? null, { name, avatar, isGuest: false });
+        await migrateLocalDataToUser(u.id);
         triggerSyncNow();
       } else if (event === 'SIGNED_OUT') {
         const isGuest =
